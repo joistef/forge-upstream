@@ -2,12 +2,15 @@ package forge.ai.llm;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
+import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.Usage;
 
 import java.time.Duration;
+import java.util.List;
 
 public class LlmClient {
     private static LlmClient instance;
@@ -48,8 +51,14 @@ public class LlmClient {
 
         long startTime = System.nanoTime();
 
+        // Use structured system prompt with cache control for prompt caching
+        TextBlockParam systemBlock = TextBlockParam.builder()
+            .text(systemPrompt)
+            .cacheControl(CacheControlEphemeral.builder().build())
+            .build();
+
         MessageCreateParams params = MessageCreateParams.builder()
-            .system(systemPrompt)
+            .systemOfTextBlockParams(List.of(systemBlock))
             .maxTokens(maxTokens)
             .addUserMessage(userMessage)
             .model(model)
