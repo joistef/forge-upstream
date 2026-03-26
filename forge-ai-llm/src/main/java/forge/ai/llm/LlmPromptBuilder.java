@@ -13,14 +13,27 @@ import java.util.stream.Collectors;
 
 public class LlmPromptBuilder {
 
-    private final String systemPrompt;
+    private String systemPrompt;
+    private String deckBrief;
 
     public LlmPromptBuilder() {
-        this.systemPrompt = loadSystemPrompt();
+        this(LlmPersonality.DEFAULT);
     }
 
-    private String loadSystemPrompt() {
-        try (InputStream is = getClass().getClassLoader().getResourceAsStream("llm-system-prompt.txt")) {
+    public LlmPromptBuilder(LlmPersonality personality) {
+        this.systemPrompt = loadSystemPrompt(personality.getResourceFile());
+    }
+
+    public void setDeckBrief(String deckBrief) {
+        this.deckBrief = deckBrief;
+        // Append deck brief to system prompt
+        if (deckBrief != null && !deckBrief.isEmpty()) {
+            this.systemPrompt = this.systemPrompt + "\n\nDECK BRIEFING:\n" + deckBrief;
+        }
+    }
+
+    private String loadSystemPrompt(String resourceFile) {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream(resourceFile)) {
             if (is == null) {
                 return getDefaultSystemPrompt();
             }
@@ -55,6 +68,43 @@ public class LlmPromptBuilder {
         }
 
         sb.append("PASS: Do nothing and pass priority\n");
+        sb.append("\nChoose action:");
+        return sb.toString();
+    }
+
+    public String buildPlanningPrompt(String gameState) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("STRATEGIC PLANNING\n\n");
+        sb.append(gameState);
+        sb.append("\nBased on the current game state, your hand, and your deck strategy, ");
+        sb.append("plan your next 3 turns. Consider:\n");
+        sb.append("- What do you want to accomplish?\n");
+        sb.append("- What threats must you address?\n");
+        sb.append("- What cards do you hope to draw or flip?\n");
+        sb.append("- How should you sequence your plays?\n\n");
+        sb.append("Respond with a concise 2-4 sentence plan.");
+        return sb.toString();
+    }
+
+    public String injectPlan(String basePrompt, String plan) {
+        if (plan == null || plan.isEmpty()) return basePrompt;
+        return "CURRENT PLAN:\n" + plan + "\n\n" + basePrompt;
+    }
+
+    public String buildReactivePrompt(String gameState, List<SpellAbility> legalActions, String stackDescription) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("RESPOND TO OPPONENT'S PLAY\n\n");
+        sb.append("ON THE STACK:\n").append(stackDescription).append("\n\n");
+        sb.append(gameState);
+        sb.append("\nYOUR INSTANT-SPEED OPTIONS:\n");
+
+        for (int i = 0; i < legalActions.size(); i++) {
+            SpellAbility sa = legalActions.get(i);
+            sb.append(i).append(": ").append(describeAction(sa)).append("\n");
+        }
+
+        sb.append("PASS: Let it resolve (do nothing)\n");
+        sb.append("\nIMPORTANT: PASS means the spell/ability on the stack RESOLVES. Only respond if it's worth spending your resources.\n");
         sb.append("\nChoose action:");
         return sb.toString();
     }

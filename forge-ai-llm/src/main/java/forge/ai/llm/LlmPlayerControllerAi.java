@@ -29,6 +29,8 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
     private final LlmCallThrottler throttler;
     private final LlmConfig config;
     private final LlmGameStats stats;
+    private final LlmConversationHistory history;
+    private final LlmTurnPlanner planner;
     private boolean gameEndRecorded = false;
 
     public LlmPlayerControllerAi(Game game, Player player, LobbyPlayerAi lp, LlmConfig config) {
@@ -36,13 +38,26 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
         this.config = config;
         this.llmClient = LlmClient.getInstance(config);
         this.summarizer = new GameStateSummarizer(config.getMaxGameStateChars());
-        this.promptBuilder = new LlmPromptBuilder();
+        this.promptBuilder = new LlmPromptBuilder(LlmPersonality.fromString(config.getPersonality()));
         this.responseParser = new LlmResponseParser();
-        this.throttler = new LlmCallThrottler(config.getMaxCallsPerTurn());
+        this.throttler = new LlmCallThrottler(config.getMaxCallsPerTurn(),
+            config.getReactiveMaxCalls(), config.isReactiveEnabled());
+        this.planner = new LlmTurnPlanner(config.getPlanningHorizon());
         this.stats = new LlmGameStats(config.getStatsFile());
+        this.history = new LlmConversationHistory(config.getHistoryMaxEntries(), config.getHistoryMaxChars());
+
+        // Analyze deck and set brief in prompt builder
+        try {
+            String deckBrief = DeckAnalyzer.generateBrief(player, config.getDeckProfileDir());
+            promptBuilder.setDeckBrief(deckBrief);
+            System.out.println("[LLM-AI] Deck brief: " + deckBrief);
+        } catch (Exception e) {
+            System.err.println("[LLM-AI] Deck analysis failed: " + e.getMessage());
+        }
 
         System.out.println("[LLM-AI] Claude AI initialized for player: " + player.getName());
         System.out.println("[LLM-AI] Model: " + config.getModel());
+        System.out.println("[LLM-AI] Personality: " + config.getPersonality());
     }
 
     @Override
@@ -68,8 +83,42 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             // Serialize game state
             String gameState = summarizer.summarize(game, player);
 
-            // Build prompt
-            String prompt = promptBuilder.buildPlayPrompt(gameState, legalActions);
+            // Multi-turn planning: create/refresh plan if needed
+            int turn = game.getPhaseHandler().getTurn();
+            if (config.isPlanningEnabled()
+                    && game.getPhaseHandler().getPhase() == forge.game.phase.PhaseType.MAIN1
+                    && game.getPhaseHandler().getPlayerTurn() == player) {
+                int life = player.getLife();
+                int creatures = player.getCreaturesInPlay().size();
+                if (planner.needsNewPlan(turn, life, creatures)) {
+                    try {
+                        String planPrompt = promptBuilder.buildPlanningPrompt(gameState);
+                        LlmResponse planResponse = llmClient.query(promptBuilder.getSystemPrompt(), planPrompt);
+                        stats.recordApiCall(planResponse);
+                        planner.setPlan(planResponse.getText(), turn, life, creatures);
+                    } catch (Exception e) {
+                        System.err.println("[LLM-AI] Planning failed: " + e.getMessage());
+                    }
+                }
+            }
+
+            // Inject conversation history
+            String historySection = history.toPromptSection();
+            String fullState = historySection.isEmpty() ? gameState : gameState + "\n" + historySection;
+
+            // Build prompt — use reactive prompt if responding to opponent's spell
+            String prompt;
+            if (throttler.isReactiveScenario(game, player)) {
+                String stackDesc = summarizer.summarizeStack(game);
+                prompt = promptBuilder.buildReactivePrompt(fullState, legalActions, stackDesc);
+            } else {
+                prompt = promptBuilder.buildPlayPrompt(fullState, legalActions);
+            }
+
+            // Inject current plan if available
+            if (planner.hasPlan()) {
+                prompt = promptBuilder.injectPlan(prompt, planner.getCurrentPlan());
+            }
 
             // Query LLM
             LlmResponse response = llmClient.query(promptBuilder.getSystemPrompt(), prompt);
@@ -78,13 +127,19 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             // Parse response
             int chosenIndex = responseParser.parseActionChoice(response.getText(), legalActions.size());
 
+            String phase = game.getPhaseHandler().getPhase().toString();
+
             if (chosenIndex == -1) {
-                return Collections.emptyList(); // PASS
+                history.addExchange(turn, phase, "Chose PASS");
+                return Collections.emptyList();
             }
 
             SpellAbility chosen = legalActions.get(chosenIndex);
-            System.out.println("[LLM-AI] Chose: " + chosen.getHostCard().getName()
-                + (chosen.isSpell() ? " (cast)" : " (activate)"));
+            String actionDesc = chosen.getHostCard().getName()
+                + (chosen.isSpell() ? " (cast)" : " (activate)");
+            System.out.println("[LLM-AI] Chose: " + actionDesc);
+
+            history.addExchange(turn, phase, "Chose " + actionDesc);
 
             return Collections.singletonList(chosen);
 
@@ -118,8 +173,11 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             // Parse response
             List<Integer> chosenIndices = responseParser.parseMultipleChoices(response.getText(), potentialAttackers.size());
 
+            int turn = game.getPhaseHandler().getTurn();
+
             if (chosenIndices.isEmpty()) {
                 System.out.println("[LLM-AI] Chose: No attackers");
+                history.addExchange(turn, "COMBAT", "Chose no attackers");
                 return;
             }
 
@@ -134,13 +192,16 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             }
             if (defender == null) return;
 
+            StringBuilder attackLog = new StringBuilder("Attacked with: ");
             for (int idx : chosenIndices) {
                 Card attackingCreature = potentialAttackers.get(idx);
                 if (CombatUtil.canAttack(attackingCreature, defender)) {
                     combat.addAttacker(attackingCreature, defender);
                     System.out.println("[LLM-AI] Attacking with: " + attackingCreature.getName());
+                    attackLog.append(attackingCreature.getName()).append(", ");
                 }
             }
+            history.addExchange(turn, "COMBAT", attackLog.toString());
 
         } catch (Exception e) {
             System.err.println("[LLM-AI] Error in declareAttackers, falling back: " + e.getMessage());

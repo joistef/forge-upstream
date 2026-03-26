@@ -17,10 +17,22 @@ public class LlmConfig {
     private final boolean logPrompts;
     private final boolean logResponses;
     private final String statsFile;
+    private final int historyMaxEntries;
+    private final int historyMaxChars;
+    private final String personality;
+    private final String deckProfileDir;
+    private final boolean reactiveEnabled;
+    private final int reactiveMaxCalls;
+    private final boolean planningEnabled;
+    private final int planningHorizon;
+    private final long planningMaxTokens;
 
     private LlmConfig(String apiKey, String model, long maxTokens, int timeoutSeconds,
                        int maxCallsPerTurn, int maxGameStateChars,
-                       boolean logPrompts, boolean logResponses, String statsFile) {
+                       boolean logPrompts, boolean logResponses, String statsFile,
+                       int historyMaxEntries, int historyMaxChars, String personality,
+                       String deckProfileDir, boolean reactiveEnabled, int reactiveMaxCalls,
+                       boolean planningEnabled, int planningHorizon, long planningMaxTokens) {
         this.apiKey = apiKey;
         this.model = model;
         this.maxTokens = maxTokens;
@@ -30,6 +42,15 @@ public class LlmConfig {
         this.logPrompts = logPrompts;
         this.logResponses = logResponses;
         this.statsFile = statsFile;
+        this.historyMaxEntries = historyMaxEntries;
+        this.historyMaxChars = historyMaxChars;
+        this.personality = personality;
+        this.deckProfileDir = deckProfileDir;
+        this.reactiveEnabled = reactiveEnabled;
+        this.reactiveMaxCalls = reactiveMaxCalls;
+        this.planningEnabled = planningEnabled;
+        this.planningHorizon = planningHorizon;
+        this.planningMaxTokens = planningMaxTokens;
     }
 
     public static LlmConfig load() {
@@ -59,7 +80,16 @@ public class LlmConfig {
             getInt(props, "llm.max.game.state.chars", 4000),
             getBool(props, "llm.log.prompts", false),
             getBool(props, "llm.log.responses", false),
-            getStr(props, "llm.stats.file", "~/.forge/llm-stats.jsonl")
+            getStr(props, "llm.stats.file", "~/.forge/llm-stats.jsonl"),
+            getInt(props, "llm.history.max.entries", 10),
+            getInt(props, "llm.history.max.chars", 8000),
+            getStr(props, "llm.personality", "DEFAULT"),
+            getStr(props, "llm.deck.profile.dir", "~/.forge/llm-deck-profiles/"),
+            getBool(props, "llm.reactive.enabled", true),
+            getInt(props, "llm.reactive.max.calls.per.turn", 3),
+            getBool(props, "llm.planning.enabled", true),
+            getInt(props, "llm.planning.horizon", 3),
+            getLong(props, "llm.planning.max.tokens", 512)
         );
     }
 
@@ -92,6 +122,15 @@ public class LlmConfig {
     public boolean isLogPrompts() { return logPrompts; }
     public boolean isLogResponses() { return logResponses; }
     public String getStatsFile() { return statsFile; }
+    public int getHistoryMaxEntries() { return historyMaxEntries; }
+    public int getHistoryMaxChars() { return historyMaxChars; }
+    public String getPersonality() { return personality; }
+    public String getDeckProfileDir() { return deckProfileDir; }
+    public boolean isReactiveEnabled() { return reactiveEnabled; }
+    public int getReactiveMaxCalls() { return reactiveMaxCalls; }
+    public boolean isPlanningEnabled() { return planningEnabled; }
+    public int getPlanningHorizon() { return planningHorizon; }
+    public long getPlanningMaxTokens() { return planningMaxTokens; }
 
     public boolean isConfigured() {
         return apiKey != null && !apiKey.isEmpty();

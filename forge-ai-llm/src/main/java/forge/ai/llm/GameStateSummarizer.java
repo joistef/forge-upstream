@@ -62,6 +62,24 @@ public class GameStateSummarizer {
         return sb.toString();
     }
 
+    /**
+     * Summarize the stack for reactive prompts.
+     */
+    public String summarizeStack(Game game) {
+        MagicStack stack = game.getStack();
+        if (stack.isEmpty()) return "(empty)";
+
+        StringBuilder sb = new StringBuilder();
+        for (SpellAbilityStackInstance si : stack) {
+            sb.append("  - ").append(si.getStackDescription());
+            if (si.getSpellAbility() != null && si.getSpellAbility().getActivatingPlayer() != null) {
+                sb.append(" (by ").append(si.getSpellAbility().getActivatingPlayer().getName()).append(")");
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
     public String summarizeForCombat(Game game, Player aiPlayer, Combat combat) {
         StringBuilder sb = new StringBuilder();
         sb.append("Turn: ").append(game.getPhaseHandler().getTurn());
