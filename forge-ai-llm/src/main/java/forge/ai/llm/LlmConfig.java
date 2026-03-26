@@ -16,10 +16,11 @@ public class LlmConfig {
     private final int maxGameStateChars;
     private final boolean logPrompts;
     private final boolean logResponses;
+    private final String statsFile;
 
     private LlmConfig(String apiKey, String model, long maxTokens, int timeoutSeconds,
                        int maxCallsPerTurn, int maxGameStateChars,
-                       boolean logPrompts, boolean logResponses) {
+                       boolean logPrompts, boolean logResponses, String statsFile) {
         this.apiKey = apiKey;
         this.model = model;
         this.maxTokens = maxTokens;
@@ -28,6 +29,7 @@ public class LlmConfig {
         this.maxGameStateChars = maxGameStateChars;
         this.logPrompts = logPrompts;
         this.logResponses = logResponses;
+        this.statsFile = statsFile;
     }
 
     public static LlmConfig load() {
@@ -56,7 +58,8 @@ public class LlmConfig {
             getInt(props, "llm.max.calls.per.turn", 5),
             getInt(props, "llm.max.game.state.chars", 4000),
             getBool(props, "llm.log.prompts", false),
-            getBool(props, "llm.log.responses", false)
+            getBool(props, "llm.log.responses", false),
+            getStr(props, "llm.stats.file", "~/.forge/llm-stats.jsonl")
         );
     }
 
@@ -88,6 +91,7 @@ public class LlmConfig {
     public int getMaxGameStateChars() { return maxGameStateChars; }
     public boolean isLogPrompts() { return logPrompts; }
     public boolean isLogResponses() { return logResponses; }
+    public String getStatsFile() { return statsFile; }
 
     public boolean isConfigured() {
         return apiKey != null && !apiKey.isEmpty();

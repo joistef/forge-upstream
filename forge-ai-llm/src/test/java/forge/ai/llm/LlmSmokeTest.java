@@ -52,12 +52,16 @@ public class LlmSmokeTest {
         System.out.println("--- End prompt ---\n");
 
         try {
-            String response = client.query(systemPrompt, userPrompt);
-            System.out.println("LLM Response: \"" + response + "\"");
+            LlmResponse response = client.query(systemPrompt, userPrompt);
+            System.out.println("LLM Response: \"" + response.getText() + "\"");
+            System.out.println("Tokens — Input: " + response.getInputTokens()
+                + " | Output: " + response.getOutputTokens()
+                + " | Cache Read: " + response.getCacheReadTokens()
+                + " | Time: " + response.getResponseTimeMs() + "ms");
 
             // Parse it
             LlmResponseParser parser = new LlmResponseParser();
-            int choice = parser.parseActionChoice(response, 3);
+            int choice = parser.parseActionChoice(response.getText(), 3);
             String[] actions = {"Play Mountain", "Cast Goblin Guide", "Cast Lightning Bolt"};
 
             if (choice == -1) {
@@ -65,6 +69,12 @@ public class LlmSmokeTest {
             } else {
                 System.out.println("Parsed: " + choice + " (" + actions[choice] + ")");
             }
+
+            // Test stats tracking
+            LlmGameStats stats = new LlmGameStats(config.getStatsFile());
+            stats.recordApiCall(response);
+            System.out.println("Stats — API Calls: " + stats.getApiCallsThisGame()
+                + " | Input Tokens: " + stats.getInputTokensThisGame());
 
             System.out.println("\n=== SMOKE TEST PASSED ===");
         } catch (Exception e) {

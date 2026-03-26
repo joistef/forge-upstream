@@ -28,6 +28,8 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
     private final LlmResponseParser responseParser;
     private final LlmCallThrottler throttler;
     private final LlmConfig config;
+    private final LlmGameStats stats;
+    private boolean gameEndRecorded = false;
 
     public LlmPlayerControllerAi(Game game, Player player, LobbyPlayerAi lp, LlmConfig config) {
         super(game, player, lp);
@@ -37,6 +39,7 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
         this.promptBuilder = new LlmPromptBuilder();
         this.responseParser = new LlmResponseParser();
         this.throttler = new LlmCallThrottler(config.getMaxCallsPerTurn());
+        this.stats = new LlmGameStats(config.getStatsFile());
 
         System.out.println("[LLM-AI] Claude AI initialized for player: " + player.getName());
         System.out.println("[LLM-AI] Model: " + config.getModel());
@@ -44,6 +47,9 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
 
     @Override
     public List<SpellAbility> chooseSpellAbilityToPlay() {
+        // Check for game end and record stats
+        checkGameEnd();
+
         try {
             Game game = getGame();
             Player player = getPlayer();
@@ -66,10 +72,11 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             String prompt = promptBuilder.buildPlayPrompt(gameState, legalActions);
 
             // Query LLM
-            String response = llmClient.query(promptBuilder.getSystemPrompt(), prompt);
+            LlmResponse response = llmClient.query(promptBuilder.getSystemPrompt(), prompt);
+            stats.recordApiCall(response);
 
             // Parse response
-            int chosenIndex = responseParser.parseActionChoice(response, legalActions.size());
+            int chosenIndex = responseParser.parseActionChoice(response.getText(), legalActions.size());
 
             if (chosenIndex == -1) {
                 return Collections.emptyList(); // PASS
@@ -105,10 +112,11 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             String prompt = promptBuilder.buildAttackPrompt(gameState, potentialAttackers);
 
             // Query LLM
-            String response = llmClient.query(promptBuilder.getSystemPrompt(), prompt);
+            LlmResponse response = llmClient.query(promptBuilder.getSystemPrompt(), prompt);
+            stats.recordApiCall(response);
 
             // Parse response
-            List<Integer> chosenIndices = responseParser.parseMultipleChoices(response, potentialAttackers.size());
+            List<Integer> chosenIndices = responseParser.parseMultipleChoices(response.getText(), potentialAttackers.size());
 
             if (chosenIndices.isEmpty()) {
                 System.out.println("[LLM-AI] Chose: No attackers");
@@ -116,7 +124,6 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             }
 
             // Find a defender (first opponent for simplicity in MVP)
-            // TODO: Let LLM choose which opponent to attack
             FCollectionView<Player> opponents = attacker.getOpponents();
             Player defender = null;
             for (Player opp : opponents) {
@@ -170,11 +177,12 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             String prompt = promptBuilder.buildBlockPrompt(gameState, potentialBlockers, attackers);
 
             // Query LLM
-            String response = llmClient.query(promptBuilder.getSystemPrompt(), prompt);
+            LlmResponse response = llmClient.query(promptBuilder.getSystemPrompt(), prompt);
+            stats.recordApiCall(response);
 
             // Parse block assignments
             Map<Integer, Integer> assignments = responseParser.parseBlockAssignments(
-                response, potentialBlockers.size(), attackers.size());
+                response.getText(), potentialBlockers.size(), attackers.size());
 
             if (assignments.isEmpty()) {
                 System.out.println("[LLM-AI] Chose: No blockers");
@@ -196,6 +204,23 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
         }
     }
 
+    private void checkGameEnd() {
+        if (gameEndRecorded) return;
+        Game game = getGame();
+        if (game.isGameOver()) {
+            gameEndRecorded = true;
+            Player player = getPlayer();
+            boolean won = game.getOutcome() != null
+                && game.getOutcome().isWinner(player.getRegisteredPlayer());
+            String deckName = player.getRegisteredPlayer() != null
+                && player.getRegisteredPlayer().getDeck() != null
+                ? player.getRegisteredPlayer().getDeck().getName() : "Unknown";
+            int opponents = game.getRegisteredPlayers().size() - 1;
+            int turns = game.getPhaseHandler().getTurn();
+            stats.recordGameEnd(won, deckName, opponents, turns);
+        }
+    }
+
     private List<SpellAbility> buildLegalActionList(Game game, Player player) {
         List<SpellAbility> actions = new ArrayList<>();
 
@@ -206,7 +231,7 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
                 for (SpellAbility sa : land.getAllPossibleAbilities(player, false)) {
                     if (sa instanceof LandAbility) {
                         actions.add(sa);
-                        break; // one land ability per land card
+                        break;
                     }
                 }
             }
