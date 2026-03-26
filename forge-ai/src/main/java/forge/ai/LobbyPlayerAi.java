@@ -35,6 +35,19 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
     }
 
     private PlayerControllerAi createControllerFor(Player ai) {
+        // LLM AI: when enabled, use reflection to load Claude controller from forge-ai-llm module
+        if (Boolean.getBoolean("forge.ai.llm")) {
+            try {
+                Class<?> configClazz = Class.forName("forge.ai.llm.LlmConfig");
+                Object config = configClazz.getMethod("load").invoke(null);
+                Class<?> clazz = Class.forName("forge.ai.llm.LlmPlayerControllerAi");
+                return (PlayerControllerAi) clazz.getConstructor(
+                    Game.class, Player.class, LobbyPlayerAi.class, configClazz
+                ).newInstance(ai.getGame(), ai, this, config);
+            } catch (Exception e) {
+                System.err.println("[LLM-AI] Failed to load LLM controller, using standard AI: " + e.getMessage());
+            }
+        }
         PlayerControllerAi result = new PlayerControllerAi(ai.getGame(), ai, this);
         result.setUseSimulation(useSimulation);
         return result;
