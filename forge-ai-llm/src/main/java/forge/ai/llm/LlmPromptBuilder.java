@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class LlmPromptBuilder {
@@ -60,6 +61,9 @@ public class LlmPromptBuilder {
         StringBuilder sb = new StringBuilder();
         sb.append("GAME STATE:\n");
         sb.append(gameState);
+        sb.append("\nIMPORTANT: You can play a land AND cast spells in the same turn. ");
+        sb.append("Choosing one action does not end your turn — you will get priority again to take more actions. ");
+        sb.append("Only choose PASS when you truly have nothing left to do this phase.\n");
         sb.append("\nLEGAL ACTIONS:\n");
 
         for (int i = 0; i < legalActions.size(); i++) {
@@ -67,8 +71,8 @@ public class LlmPromptBuilder {
             sb.append(i).append(": ").append(describeAction(sa)).append("\n");
         }
 
-        sb.append("PASS: Do nothing and pass priority\n");
-        sb.append("\nChoose action:");
+        sb.append("PASS: Do nothing and pass priority (you are DONE this phase)\n");
+        sb.append("\nChoose the BEST action to take right now:");
         return sb.toString();
     }
 
@@ -109,7 +113,8 @@ public class LlmPromptBuilder {
         return sb.toString();
     }
 
-    public String buildAttackPrompt(String gameState, List<Card> potentialAttackers) {
+    public String buildAttackPrompt(String gameState, List<Card> potentialAttackers,
+                                      Map<String, List<Card>> opponentBlockers) {
         StringBuilder sb = new StringBuilder();
         sb.append("COMBAT - DECLARE ATTACKERS\n\n");
         sb.append(gameState);
@@ -120,6 +125,20 @@ public class LlmPromptBuilder {
             sb.append(i).append(": ").append(describeCreature(c)).append("\n");
         }
 
+        sb.append("\nOPPONENT BLOCKERS:\n");
+        for (Map.Entry<String, List<Card>> entry : opponentBlockers.entrySet()) {
+            sb.append("  ").append(entry.getKey()).append(": ");
+            if (entry.getValue().isEmpty()) {
+                sb.append("(no untapped creatures)\n");
+            } else {
+                for (Card c : entry.getValue()) {
+                    sb.append(describeCreature(c)).append(", ");
+                }
+                sb.append("\n");
+            }
+        }
+
+        sb.append("\nDo NOT attack a creature into a larger blocker unless you have a reason (trample, deathtouch, evasion).");
         sb.append("\nSelect which creatures to attack with (comma-separated numbers), or NONE:");
         return sb.toString();
     }

@@ -1,6 +1,7 @@
 package forge.ai.llm;
 
 import forge.ai.ComputerUtilAbility;
+import forge.ai.ComputerUtilMana;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.PlayerControllerAi;
 import forge.game.Game;
@@ -38,7 +39,12 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
         this.config = config;
         this.llmClient = LlmClient.getInstance(config);
         this.summarizer = new GameStateSummarizer(config.getMaxGameStateChars());
-        this.promptBuilder = new LlmPromptBuilder(LlmPersonality.fromString(config.getPersonality()));
+        // Each AI player gets its own personality — RANDOM assigns one randomly
+        LlmPersonality personality = LlmPersonality.fromString(config.getPersonality());
+        if (personality == LlmPersonality.RANDOM) {
+            personality = LlmPersonality.pickRandom();
+        }
+        this.promptBuilder = new LlmPromptBuilder(personality);
         this.responseParser = new LlmResponseParser();
         this.throttler = new LlmCallThrottler(config.getMaxCallsPerTurn(),
             config.getReactiveMaxCalls(), config.isReactiveEnabled());
@@ -57,7 +63,7 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
 
         System.out.println("[LLM-AI] Claude AI initialized for player: " + player.getName());
         System.out.println("[LLM-AI] Model: " + config.getModel());
-        System.out.println("[LLM-AI] Personality: " + config.getPersonality());
+        System.out.println("[LLM-AI] Personality: " + personality);
     }
 
     @Override
@@ -163,8 +169,21 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             // Serialize combat state
             String gameState = summarizer.summarizeForCombat(game, attacker, combat);
 
+            // Gather opponent blockers (untapped creatures that could block)
+            Map<String, List<Card>> opponentBlockers = new java.util.LinkedHashMap<>();
+            for (Player opp : attacker.getOpponents()) {
+                if (opp.hasLost()) continue;
+                List<Card> blockers = new ArrayList<>();
+                for (Card c : opp.getCreaturesInPlay()) {
+                    if (!c.isTapped()) {
+                        blockers.add(c);
+                    }
+                }
+                opponentBlockers.put(opp.getName() + " (Life: " + opp.getLife() + ")", blockers);
+            }
+
             // Build prompt
-            String prompt = promptBuilder.buildAttackPrompt(gameState, potentialAttackers);
+            String prompt = promptBuilder.buildAttackPrompt(gameState, potentialAttackers, opponentBlockers);
 
             // Query LLM
             LlmResponse response = llmClient.query(promptBuilder.getSystemPrompt(), prompt);
@@ -285,10 +304,17 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
     private List<SpellAbility> buildLegalActionList(Game game, Player player) {
         List<SpellAbility> actions = new ArrayList<>();
 
-        // Get playable lands
+        // Get playable lands (filter out bounce lands that would loop with no other lands)
         CardCollection lands = ComputerUtilAbility.getAvailableLandsToPlay(game, player);
         if (lands != null) {
+            int landsInPlay = player.getCardsIn(forge.game.zone.ZoneType.Battlefield).stream()
+                .mapToInt(c -> c.isLand() ? 1 : 0).sum();
             for (Card land : lands) {
+                // Skip bounce lands if player has 0-1 lands in play (would loop)
+                String oracle = land.getOracleText() != null ? land.getOracleText().toLowerCase() : "";
+                if (oracle.contains("return a land you control") && landsInPlay <= 1) {
+                    continue;
+                }
                 for (SpellAbility sa : land.getAllPossibleAbilities(player, false)) {
                     if (sa instanceof LandAbility) {
                         actions.add(sa);
@@ -298,13 +324,21 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             }
         }
 
-        // Get playable spells and abilities
+        // Get playable spells and abilities (exclude mana abilities and land activations)
         CardCollection available = ComputerUtilAbility.getAvailableCards(game, player);
         List<SpellAbility> spellAbilities = ComputerUtilAbility.getSpellAbilities(available, player);
         for (SpellAbility sa : spellAbilities) {
-            if (sa.canPlay() && !(sa instanceof LandAbility)) {
-                actions.add(sa);
-            }
+            if (!sa.canPlay()) continue;
+            if (sa instanceof LandAbility) continue;
+            // Skip mana abilities (tapping lands/rocks for mana)
+            if (sa.getManaPart() != null) continue;
+            if (sa.getApi() != null && sa.getApi() == forge.game.ability.ApiType.Mana) continue;
+            // Skip activated abilities on lands already in play (tap abilities, etc.)
+            Card host = sa.getHostCard();
+            if (host != null && host.isLand() && host.isInPlay() && !sa.isSpell()) continue;
+            // Verify mana can actually be paid (prevents "AI failed to play" errors)
+            if (sa.isSpell() && !ComputerUtilMana.canPayManaCost(sa, player, 0, false)) continue;
+            actions.add(sa);
         }
 
         return actions;

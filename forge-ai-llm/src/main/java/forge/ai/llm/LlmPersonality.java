@@ -8,7 +8,8 @@ public enum LlmPersonality {
     AGGRESSIVE("llm-personality-aggressive.txt"),
     CONTROL("llm-personality-control.txt"),
     POLITICAL("llm-personality-political.txt"),
-    CHAOTIC("llm-personality-chaotic.txt");
+    CHAOTIC("llm-personality-chaotic.txt"),
+    RANDOM(null);
 
     private final String resourceFile;
 
@@ -17,7 +18,16 @@ public enum LlmPersonality {
     }
 
     public String getResourceFile() {
+        if (this == RANDOM) return pickRandom().resourceFile;
         return resourceFile;
+    }
+
+    /**
+     * Pick a random non-DEFAULT, non-RANDOM personality.
+     */
+    public static LlmPersonality pickRandom() {
+        LlmPersonality[] options = {AGGRESSIVE, CONTROL, POLITICAL, CHAOTIC};
+        return options[(int) (Math.random() * options.length)];
     }
 
     public static LlmPersonality fromString(String s) {
