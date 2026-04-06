@@ -136,6 +136,64 @@ public class DeckAnalyzer {
         return sb.toString();
     }
 
+    /**
+     * Suggest a personality based on deck composition.
+     */
+    public static LlmPersonality suggestPersonality(Player player) {
+        try {
+            int creatures = 0, instants = 0, sorceries = 0;
+            int counterspells = 0, boardWipes = 0;
+            double totalCmc = 0;
+            int nonLandCount = 0;
+
+            List<Card> allCards = new ArrayList<>();
+            allCards.addAll(player.getCardsIn(ZoneType.Library));
+            allCards.addAll(player.getCardsIn(ZoneType.Hand));
+            allCards.addAll(player.getCardsIn(ZoneType.Command));
+
+            for (Card c : allCards) {
+                try {
+                    if (c.isCreature()) creatures++;
+                    if (c.isInstant()) instants++;
+                    if (c.isSorcery()) sorceries++;
+                    if (!c.isLand()) {
+                        totalCmc += c.getCMC();
+                        nonLandCount++;
+                    }
+                    String oracle = c.getOracleText() != null ? c.getOracleText().toLowerCase() : "";
+                    if (oracle.contains("counter target")) counterspells++;
+                    if (oracle.contains("destroy all") || oracle.contains("exile all")
+                        || oracle.contains("all creatures get -")) boardWipes++;
+                } catch (Exception e) { /* skip */ }
+            }
+
+            double avgCmc = nonLandCount > 0 ? totalCmc / nonLandCount : 3.0;
+            double creatureRatio = nonLandCount > 0 ? (double) creatures / nonLandCount : 0.5;
+            int interactionCount = counterspells + boardWipes;
+
+            // High creature density + low curve = AGGRESSIVE
+            if (creatureRatio > 0.55 && avgCmc < 3.2) {
+                return LlmPersonality.AGGRESSIVE;
+            }
+
+            // High interaction + counterspells + board wipes = CONTROL
+            if (interactionCount >= 4 || (instants + sorceries > creatures && counterspells >= 2)) {
+                return LlmPersonality.CONTROL;
+            }
+
+            // High avg CMC + moderate creatures = POLITICAL (big splashy plays, needs time)
+            if (avgCmc > 3.5) {
+                return LlmPersonality.POLITICAL;
+            }
+
+            // Default to POLITICAL for multiplayer — it's the safest general strategy
+            return LlmPersonality.POLITICAL;
+
+        } catch (Exception e) {
+            return LlmPersonality.POLITICAL;
+        }
+    }
+
     private static String getDeckName(Player player) {
         RegisteredPlayer rp = player.getRegisteredPlayer();
         if (rp != null && rp.getDeck() != null && rp.getDeck().getName() != null) {

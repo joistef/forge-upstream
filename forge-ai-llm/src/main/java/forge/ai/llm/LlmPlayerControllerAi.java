@@ -39,10 +39,14 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
         this.config = config;
         this.llmClient = LlmClient.getInstance(config);
         this.summarizer = new GameStateSummarizer(config.getMaxGameStateChars());
-        // Each AI player gets its own personality — RANDOM assigns one randomly
+        // Determine personality — RANDOM analyzes the deck to pick a fitting one
         LlmPersonality personality = LlmPersonality.fromString(config.getPersonality());
         if (personality == LlmPersonality.RANDOM) {
-            personality = LlmPersonality.pickRandom();
+            try {
+                personality = DeckAnalyzer.suggestPersonality(player);
+            } catch (Exception e) {
+                personality = LlmPersonality.pickRandom();
+            }
         }
         this.promptBuilder = new LlmPromptBuilder(personality);
         this.responseParser = new LlmResponseParser();
