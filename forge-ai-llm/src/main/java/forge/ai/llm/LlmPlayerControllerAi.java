@@ -79,9 +79,15 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             Game game = getGame();
             Player player = getPlayer();
 
-            // Check throttle
+            // Check throttle — during non-strategic phases, pass rather than
+            // letting standard AI make suboptimal plays (e.g. activating draw
+            // abilities during upkeep instead of waiting for main phase)
             if (throttler.shouldSkip(game, player)) {
-                return super.chooseSpellAbilityToPlay();
+                forge.game.phase.PhaseType phase = game.getPhaseHandler().getPhase();
+                if (phase == forge.game.phase.PhaseType.MAIN1 || phase == forge.game.phase.PhaseType.MAIN2) {
+                    return super.chooseSpellAbilityToPlay();
+                }
+                return Collections.emptyList(); // Pass during non-main phases
             }
 
             // Build legal action list
@@ -342,8 +348,13 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             Card host = sa.getHostCard();
             if (host != null && host.isLand() && host.isInPlay() && !sa.isSpell()) continue;
             // Skip activated abilities on tokens (mutagen tokens, clue tokens, etc.)
-            // Let the standard AI handle these — LLM shouldn't micro-manage token activations
             if (host != null && host.isToken() && !sa.isSpell()) continue;
+            // Skip activated abilities on permanents in play (equipment, creatures with tap abilities)
+            // The LLM should focus on casting spells from hand, not micro-managing activated abilities
+            if (host != null && host.isInPlay() && !sa.isSpell() && !host.isLand()) continue;
+            // Skip counterspells when the stack is empty (nothing to counter)
+            if (sa.isSpell() && sa.getApi() != null && sa.getApi() == forge.game.ability.ApiType.Counter
+                && game.getStack().isEmpty()) continue;
             // Verify mana can actually be paid (prevents "AI failed to play" errors)
             try {
                 if (sa.isSpell() && !ComputerUtilMana.canPayManaCost(sa, player, 0, false)) continue;

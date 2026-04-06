@@ -172,22 +172,27 @@ public class DeckAnalyzer {
             int interactionCount = counterspells + boardWipes;
 
             // High creature density + low curve = AGGRESSIVE
-            if (creatureRatio > 0.55 && avgCmc < 3.2) {
+            if (creatureRatio > 0.45 && avgCmc < 3.5) {
                 return LlmPersonality.AGGRESSIVE;
             }
 
             // High interaction + counterspells + board wipes = CONTROL
-            if (interactionCount >= 4 || (instants + sorceries > creatures && counterspells >= 2)) {
+            if (interactionCount >= 3 || counterspells >= 2) {
                 return LlmPersonality.CONTROL;
             }
 
-            // High avg CMC + moderate creatures = POLITICAL (big splashy plays, needs time)
-            if (avgCmc > 3.5) {
+            // High avg CMC = POLITICAL (needs time to set up)
+            if (avgCmc > 3.8) {
                 return LlmPersonality.POLITICAL;
             }
 
-            // Default to POLITICAL for multiplayer — it's the safest general strategy
-            return LlmPersonality.POLITICAL;
+            // Moderate creature ratio = AGGRESSIVE (most precons are creature-based)
+            if (creatureRatio > 0.35) {
+                return LlmPersonality.AGGRESSIVE;
+            }
+
+            // Default — pick randomly to add variety
+            return LlmPersonality.pickRandom();
 
         } catch (Exception e) {
             return LlmPersonality.POLITICAL;
