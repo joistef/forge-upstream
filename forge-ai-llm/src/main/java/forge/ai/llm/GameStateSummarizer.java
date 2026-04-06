@@ -31,17 +31,27 @@ public class GameStateSummarizer {
         sb.append(" | Phase: ").append(game.getPhaseHandler().getPhase());
         sb.append(" | Active Player: ");
         sb.append(game.getPhaseHandler().getPlayerTurn() == aiPlayer ? "YOU" : game.getPhaseHandler().getPlayerTurn().getName());
-        sb.append("\n\n");
+        sb.append("\n");
+
+        // Available mana summary
+        try {
+            int availableMana = forge.ai.ComputerUtilMana.getAvailableManaEstimate(aiPlayer, false);
+            sb.append("Your available mana: ").append(availableMana).append("\n");
+        } catch (Exception e) { /* skip */ }
+        sb.append("\n");
 
         // AI player state (full detail)
         appendPlayerState(sb, aiPlayer, "YOU", true);
 
-        // Opponent states
+        // Opponent states — show abilities on key permanents
         for (Player opp : game.getRegisteredPlayers()) {
             if (opp != aiPlayer && !opp.hasLost()) {
                 appendPlayerState(sb, opp, opp.getName(), false);
             }
         }
+
+        // Recent game log (last 5 significant events)
+        appendRecentEvents(sb, game);
 
         // Stack
         MagicStack stack = game.getStack();
@@ -60,6 +70,31 @@ public class GameStateSummarizer {
         }
 
         return sb.toString();
+    }
+
+    private void appendRecentEvents(StringBuilder sb, Game game) {
+        try {
+            List<forge.game.GameLogEntry> entries = game.getGameLog().getLogEntries(null);
+            if (entries == null || entries.isEmpty()) return;
+
+            sb.append("=== RECENT EVENTS ===\n");
+            int count = 0;
+            for (forge.game.GameLogEntry entry : entries) {
+                if (count >= 8) break;
+                String msg = entry.message();
+                if (msg == null || msg.isEmpty()) continue;
+                // Only show combat, damage, zone changes, and stack events
+                forge.game.GameLogEntryType type = entry.type();
+                if (type == forge.game.GameLogEntryType.COMBAT
+                    || type == forge.game.GameLogEntryType.DAMAGE
+                    || type == forge.game.GameLogEntryType.LIFE
+                    || type == forge.game.GameLogEntryType.STACK_RESOLVE) {
+                    sb.append("  ").append(msg).append("\n");
+                    count++;
+                }
+            }
+            sb.append("\n");
+        } catch (Exception e) { /* skip */ }
     }
 
     /**
@@ -209,6 +244,8 @@ public class GameStateSummarizer {
             for (Card c : artifacts) {
                 sb.append(c.getName());
                 if (c.isTapped()) sb.append(" {Tapped}");
+                // Brief oracle for non-trivial artifacts
+                appendBriefOracle(sb, c, 80);
                 sb.append(", ");
             }
             sb.append("\n");
@@ -217,7 +254,9 @@ public class GameStateSummarizer {
         if (!enchantments.isEmpty()) {
             sb.append("  Enchantments: ");
             for (Card c : enchantments) {
-                sb.append(c.getName()).append(", ");
+                sb.append(c.getName());
+                appendBriefOracle(sb, c, 80);
+                sb.append(", ");
             }
             sb.append("\n");
         }
@@ -278,6 +317,9 @@ public class GameStateSummarizer {
             if (c.hasKeyword("Indestructible")) sb.append(" Indestructible");
             if (c.hasKeyword("Hexproof")) sb.append(" Hexproof");
 
+            // Brief oracle text for creatures with abilities
+            appendBriefOracle(sb, c, 60);
+
             sb.append(", ");
         }
 
@@ -286,6 +328,23 @@ public class GameStateSummarizer {
         }
 
         sb.append("\n");
+    }
+
+    /**
+     * Append a brief oracle text snippet for a card, if it has meaningful abilities.
+     * Skip vanilla creatures and basic lands.
+     */
+    private void appendBriefOracle(StringBuilder sb, Card c, int maxLen) {
+        try {
+            String oracle = c.getOracleText();
+            if (oracle == null || oracle.isEmpty()) return;
+            // Skip if it's just keyword abilities already shown
+            if (oracle.length() < 15) return;
+            String brief = oracle.length() > maxLen ? oracle.substring(0, maxLen) + "..." : oracle;
+            // Replace newlines with spaces for compactness
+            brief = brief.replace("\n", " ").replace("\r", "");
+            sb.append(" [").append(brief).append("]");
+        } catch (Exception e) { /* skip */ }
     }
 
     private void appendLandList(StringBuilder sb, List<Card> lands) {

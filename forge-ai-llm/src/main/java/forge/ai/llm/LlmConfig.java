@@ -77,7 +77,7 @@ public class LlmConfig {
             getLong(props, "llm.max.tokens", 256),
             getInt(props, "llm.timeout.seconds", 15),
             getInt(props, "llm.max.calls.per.turn", 5),
-            getInt(props, "llm.max.game.state.chars", 4000),
+            getInt(props, "llm.max.game.state.chars", 8000),
             getBool(props, "llm.log.prompts", false),
             getBool(props, "llm.log.responses", false),
             getStr(props, "llm.stats.file", "~/.forge/llm-stats.jsonl"),
