@@ -83,7 +83,8 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             // Build legal action list
             List<SpellAbility> legalActions = buildLegalActionList(game, player);
             if (legalActions.isEmpty()) {
-                return Collections.emptyList();
+                // Fall back to standard AI — our filters may be too aggressive
+                return super.chooseSpellAbilityToPlay();
             }
 
             // Serialize game state
@@ -336,8 +337,28 @@ public class LlmPlayerControllerAi extends PlayerControllerAi {
             // Skip activated abilities on lands already in play (tap abilities, etc.)
             Card host = sa.getHostCard();
             if (host != null && host.isLand() && host.isInPlay() && !sa.isSpell()) continue;
+            // Skip activated abilities on tokens (mutagen tokens, clue tokens, etc.)
+            // Let the standard AI handle these — LLM shouldn't micro-manage token activations
+            if (host != null && host.isToken() && !sa.isSpell()) continue;
             // Verify mana can actually be paid (prevents "AI failed to play" errors)
-            if (sa.isSpell() && !ComputerUtilMana.canPayManaCost(sa, player, 0, false)) continue;
+            try {
+                if (sa.isSpell() && !ComputerUtilMana.canPayManaCost(sa, player, 0, false)) continue;
+            } catch (Exception e) { /* include spell if check fails */ }
+            // Skip X spells where X would be 0 (pointless cast)
+            try {
+                if (sa.isSpell() && host != null && host.getManaCost() != null && host.getManaCost().countX() > 0) {
+                    int baseCost = host.getManaCost().getCMC();
+                    int availableMana = ComputerUtilMana.getAvailableManaEstimate(player, false);
+                    if (availableMana <= baseCost) continue;
+                }
+            } catch (Exception e) { /* include spell if check fails */ }
+            // Verify targeted spells have valid targets
+            try {
+                if (sa.usesTargeting()) {
+                    List<forge.game.GameEntity> candidates = sa.getTargetRestrictions().getAllCandidates(sa, true);
+                    if (candidates == null || candidates.isEmpty()) continue;
+                }
+            } catch (Exception e) { /* include spell if check fails */ }
             actions.add(sa);
         }
 

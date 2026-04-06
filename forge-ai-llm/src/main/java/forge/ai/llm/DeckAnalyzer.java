@@ -51,8 +51,12 @@ public class DeckAnalyzer {
 
         // Get commander info
         List<String> commanderNames = new ArrayList<>();
-        for (Card c : player.getCommanders()) {
-            commanderNames.add(c.getName());
+        try {
+            for (Card c : player.getCommanders()) {
+                commanderNames.add(c.getName());
+            }
+        } catch (Exception e) {
+            // Commander lookup can fail on some deck configurations
         }
 
         // Count cards by type from library + hand + battlefield + graveyard + command
@@ -70,22 +74,26 @@ public class DeckAnalyzer {
         allCards.addAll(player.getCardsIn(ZoneType.Command));
 
         for (Card c : allCards) {
-            if (c.isCreature()) creatures++;
-            else if (c.isInstant()) instants++;
-            else if (c.isSorcery()) sorceries++;
-            else if (c.isArtifact()) artifacts++;
-            else if (c.isEnchantment()) enchantments++;
-            else if (c.isPlaneswalker()) planeswalkers++;
+            try {
+                if (c.isCreature()) creatures++;
+                else if (c.isInstant()) instants++;
+                else if (c.isSorcery()) sorceries++;
+                else if (c.isArtifact()) artifacts++;
+                else if (c.isEnchantment()) enchantments++;
+                else if (c.isPlaneswalker()) planeswalkers++;
 
-            if (c.isLand()) {
-                lands++;
-            } else {
-                totalCmc += c.getCMC();
-                nonLandCount++;
-            }
+                if (c.isLand()) {
+                    lands++;
+                } else {
+                    totalCmc += c.getCMC();
+                    nonLandCount++;
+                }
+            } catch (Exception e) { continue; }
 
             // Theme detection from oracle text
-            String oracle = c.getOracleText() != null ? c.getOracleText().toLowerCase() : "";
+            String oracle = "";
+            try { oracle = c.getOracleText() != null ? c.getOracleText().toLowerCase() : ""; }
+            catch (Exception e) { /* skip theme detection for this card */ }
             if (oracle.contains("sacrifice")) themes.merge("sacrifice", 1, Integer::sum);
             if (oracle.contains("graveyard")) themes.merge("recursion", 1, Integer::sum);
             if (oracle.contains("create") && oracle.contains("token")) themes.merge("tokens", 1, Integer::sum);

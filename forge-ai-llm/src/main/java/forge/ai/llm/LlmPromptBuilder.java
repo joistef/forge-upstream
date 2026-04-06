@@ -183,21 +183,28 @@ public class LlmPromptBuilder {
             sb.append(" (Cost: {").append(sa.getPayCosts().getTotalMana().getShortString()).append("})");
         }
 
-        // Brief description
-        String desc = sa.getStackDescription();
-        if (desc != null && !desc.isEmpty() && desc.length() < 120) {
-            sb.append(" -- ").append(desc);
-        } else {
-            // Fallback to shorter description
-            desc = sa.getDescription();
-            if (desc != null && !desc.isEmpty()) {
-                sb.append(" -- ").append(desc.substring(0, Math.min(100, desc.length())));
-            }
-        }
-
         // Card type hint for creatures
         if (host.isCreature() && sa.isSpell()) {
             sb.append(" [").append(host.getNetPower()).append("/").append(host.getNetToughness()).append("]");
+        }
+
+        // Include oracle text so Claude understands the full effect
+        String oracle = host.getOracleText();
+        if (oracle != null && !oracle.isEmpty()) {
+            // Truncate very long oracle text
+            String truncated = oracle.length() > 200 ? oracle.substring(0, 200) + "..." : oracle;
+            sb.append(" -- ").append(truncated);
+        } else {
+            // Fallback to stack/ability description
+            String desc = sa.getStackDescription();
+            if (desc != null && !desc.isEmpty() && desc.length() < 120) {
+                sb.append(" -- ").append(desc);
+            } else {
+                desc = sa.getDescription();
+                if (desc != null && !desc.isEmpty()) {
+                    sb.append(" -- ").append(desc.substring(0, Math.min(100, desc.length())));
+                }
+            }
         }
 
         return sb.toString();
